@@ -31,15 +31,15 @@ table = 'employee';
 def home():
     return render_template('AddEmp.html')
 
-@app.route("/about", methods=['POST'])
-def about():
-    return render_template('www.intellipaat.com');
+#@app.route("/about", methods=['POST'])
+#def about():
+#    return render_template('');
 @app.route("/addemp", methods=['POST'])
 def AddEmp():
     emp_id = request.form['emp_id']
     first_name = request.form['first_name']
     last_name = request.form['last_name']
-    pri_skill = request.form['pri_skill']
+    primary_skills = request.form['primary_skills']
     location = request.form['location']
     emp_image_file = request.files['emp_image_file']
   
@@ -51,7 +51,7 @@ def AddEmp():
 
     try:
         
-        cursor.execute(insert_sql,(emp_id, first_name, last_name, pri_skill, location))
+        cursor.execute(insert_sql,(emp_id, first_name, last_name, primary_skills, location))
         db_conn.commit()
         emp_name = "" + first_name + " " + last_name
         # Uplaod image file in S3 #
@@ -62,7 +62,7 @@ def AddEmp():
         
         try:
             print("Data inserted in MySQL RDS... uploading image to S3...")
-            s3.Bucket(custombucket).put_object(Key=emp_image_file_name_in_s3, Body=emp_image_file)
+            s3.Bucket(custombucket).put_object(Key=emp_image_file_name_in_s3+".png", Body=emp_image_file,ACL='public-read')
             bucket_location = boto3.client('s3').get_bucket_location(Bucket=custombucket)
             s3_location = (bucket_location['LocationConstraint'])
 
@@ -81,7 +81,7 @@ def AddEmp():
         
             
             try:
-                dynamodb_client = boto3.client('dynamodb', region_name='us-east-2')
+                dynamodb_client = boto3.client('dynamodb', region_name='us-west-2')
                 dynamodb_client.put_item(
                  TableName='employee_image_table',
                     Item={
@@ -115,16 +115,17 @@ def GetEmp():
 @app.route("/fetchdata", methods=['GET','POST'])
 def FetchData():
     emp_id = request.form['emp_id']
-
     output = {}
-    select_sql = "SELECT emp_id, first_name, last_name, pri_skill, location from employee where emp_id=%s"
+    select_sql = "SELECT emp_id, first_name, last_name, primary_skills, location from employee where emp_id=%s"
     cursor = db_conn.cursor()
-
+    global image_url
     try:
         cursor.execute(select_sql,(emp_id))
         result = cursor.fetchone()
-
+        if result is None:
+            return render_template("EmpNotFound.html")
         output["emp_id"] = result[0]
+        print(output["emp_id"])
         print('EVERYTHING IS FINE TILL HERE')
         output["first_name"] = result[1]
         output["last_name"] = result[2]
@@ -141,7 +142,9 @@ def FetchData():
                     }
                 }
             )
+            
             image_url = response['Item']['image_url']['S']
+            print(image_url)
 
         except Exception as e:
             program_msg = "Flask could not update DynamoDB table with S3 object URL"
@@ -152,10 +155,10 @@ def FetchData():
 
     finally:
         cursor.close()
-
-    return render_template("GetEmpOutput.html", id=output["emp_id"], fname=output["first_name"],
-                           lname=output["last_name"], interest=output["primary_skills"], location=output["location"],
-                           image_url=image_url)
+    print("LAST.."+image_url)
+    return render_template("GetEmpOutput.html", id=output.get("emp_id"), fname=output.get("first_name"),
+                           lname=output.get("last_name"), interest=output.get("primary_skills"), location=output.get("location"), 
+                           image_url=image_url+".png")
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0',port=80,debug=True)
